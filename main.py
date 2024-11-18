@@ -9,6 +9,7 @@ from obstacle import Obstacle
 from scipy.spatial import Voronoi
 from shapely.geometry import Polygon, Point
 from shapely.geometry import LineString
+import time
 
 from laguerre_voronoi_2d import get_power_triangulation, get_voronoi_cells
 
@@ -138,8 +139,11 @@ def draw_local_free_space_polygon(screen, polygon):
 
 clock = pygame.time.Clock()
 
+keys = pygame.key.get_pressed()
+
 # Game loop
 running = True
+update_robot = False
 
 # Draw the goal point
 def draw_goal(screen, goal):
@@ -179,7 +183,13 @@ while running:
 
     # Project the goal to the edge of the polygon
     projected_goal = project_goal_to_polygon(goal, local_free_space_polygon)
-    robot.update(keys, projected_goal)
+    
+    if update_robot:
+        robot.update(keys, projected_goal)
+        
+    if keys[pygame.K_SPACE]:
+        update_robot = not update_robot
+        
     
     # Draw the goal
     draw_goal(screen, projected_goal)
