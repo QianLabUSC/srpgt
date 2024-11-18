@@ -154,6 +154,9 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            if event.button == 1:
+                goal = np.array(pygame.mouse.get_pos())
 
     # Handle key inputs
     keys = pygame.key.get_pressed()
