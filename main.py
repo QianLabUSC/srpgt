@@ -11,7 +11,7 @@ from shapely.geometry import Polygon, Point
 from shapely.geometry import LineString
 import time
 
-from laguerre_voronoi_2d import get_power_triangulation, get_voronoi_cells
+from laguerre_voronoi_2d.laguerre_voronoi_2d import get_power_triangulation, get_voronoi_cells
 
 # Initialize Pygame
 pygame.init()
