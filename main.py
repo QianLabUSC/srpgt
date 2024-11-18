@@ -36,7 +36,7 @@ robot = Robot(100, 500, 10, BLACK, screen_width, screen_height)
 # Instantiate the goal point
 goal = np.array([700, 100])
 
-# Instantiate obstacles
+# Instantiate obstacles 
 obstacles = [
     Obstacle(100, 150, 25),
     Obstacle(300, 400, 20),

@@ -9,7 +9,7 @@ class Robot:
         self.radius = radius
         self.angle_line_length = 40
         self.angle = 0
-        self.move_speed = 2
+        self.move_speed = 0.02
         self.rotation_speed = 0.04
         self.screen_width = screen_width
         self.screen_height = screen_height
@@ -23,7 +23,7 @@ class Robot:
         distance_to_goal = np.linalg.norm(direction)
         if distance_to_goal > 1:  # Only move if the goal is not already reached
             direction = direction / distance_to_goal
-            self.pos += self.move_speed * direction
+            self.pos += self.move_speed*distance_to_goal * direction
             
         self.angle = math.atan2(direction[1], direction[0])
 
