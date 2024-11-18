@@ -93,7 +93,7 @@ def compute_local_workspace_polygon(robot, obstacles):
         if tmin is not None and tmax is not None:
             vertices.append(A + tmin * U)
             vertices.append(A + tmax * U)
-        elif tmin is not None:  # Infinite line case, only add finite end
+        elif tmin is not None:  # Infinite line segments
             vertices.append(A + tmin * U)
             vertices.append(A + (screen_height + screen_width) * U)
         elif tmax is not None:
@@ -187,9 +187,11 @@ while running:
     if update_robot:
         robot.update(keys, projected_goal)
         
-    if keys[pygame.K_SPACE]:
+    if keys[pygame.K_SPACE] and not last_keys[pygame.K_SPACE]: # get only rising edge
         update_robot = not update_robot
         
+    last_keys = keys
+    
     
     # Draw the goal
     draw_goal(screen, projected_goal)
