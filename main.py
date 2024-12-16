@@ -41,9 +41,9 @@ goal = np.array([700, 100])
 obstacles = [
     Obstacle(100, 150, 25),
     Obstacle(300, 400, 20),
-    Obstacle(500, 200, 10),
+    Obstacle(500, 200, 70),
     Obstacle(700, 500, 30),
-    Obstacle(400, 100, 15),
+    Obstacle(400, 100, 70),
 ]
 
 def draw_power_diagram(screen, points, radii):
