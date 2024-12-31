@@ -13,12 +13,19 @@ import time
 
 from laguerre_voronoi_2d.laguerre_voronoi_2d import get_power_triangulation, get_voronoi_cells
 
+FILENAME = 'testvalues.csv'
+Y = np.loadtxt(FILENAME, delimiter=',', skiprows=1)
+
+Y_shape = Y.shape
+
 # Initialize Pygame
 pygame.init()
 
+BUFFER_SIZE = 2
+
 # Set up the display
-screen_width = 800
-screen_height = 600
+screen_width = Y_shape[1] * BUFFER_SIZE
+screen_height = Y_shape[0] * BUFFER_SIZE
 screen = pygame.display.set_mode((screen_width, screen_height))
 pygame.display.set_caption("Disk Robot Simulator")
 
@@ -145,6 +152,19 @@ keys = pygame.key.get_pressed()
 running = True
 update_robot = False
 
+# Get max and min values of Y
+
+max_Y = np.max(Y)
+min_Y = np.min(Y)
+    
+Z = 255*(Y - min_Y) / (max_Y - min_Y)
+Z = np.repeat(Z, BUFFER_SIZE, axis=1)
+Z = np.repeat(Z, BUFFER_SIZE, axis=0).T
+surf = pygame.surfarray.make_surface(Z)
+
+
+
+
 # Draw the goal point
 def draw_goal(screen, goal):
     pygame.draw.circle(screen, BLUE, (int(goal[0]), int(goal[1])), 10)
@@ -163,15 +183,19 @@ while running:
 
     # Clear the screen
     screen.fill(WHITE)
-
-    local_workspace_polygon = compute_local_workspace_polygon(robot, obstacles)
-
-    # Fill the local workspace
-    draw_local_workspace_polygon(screen, local_workspace_polygon)
     
-    local_free_space_polygon = compute_local_free_space_polygon(local_workspace_polygon, robot)
+    # draw squares according to ground truth values
     
-    draw_local_free_space_polygon(screen, local_free_space_polygon)
+    screen.blit(surf, (0, 0))
+    
+    # local_workspace_polygon = compute_local_workspace_polygon(robot, obstacles)
+
+    # # Fill the local workspace
+    # draw_local_workspace_polygon(screen, local_workspace_polygon)
+    
+    # local_free_space_polygon = compute_local_free_space_polygon(local_workspace_polygon, robot)
+    
+    # draw_local_free_space_polygon(screen, local_free_space_polygon)
     
 
     # Draw the obstacles
@@ -185,10 +209,10 @@ while running:
     robot.draw(screen)
 
     # Project the goal to the edge of the polygon
-    projected_goal = project_goal_to_polygon(goal, local_free_space_polygon)
+    # projected_goal = project_goal_to_polygon(goal, local_free_space_polygon)
     
     if update_robot:
-        robot.update(keys, projected_goal)
+        robot.update(keys, goal)
         
     if keys[pygame.K_SPACE] and not last_keys[pygame.K_SPACE]: # get only rising edge
         update_robot = not update_robot
@@ -197,7 +221,7 @@ while running:
     
     
     # Draw the goal
-    draw_goal(screen, projected_goal)
+    # draw_goal(screen, projected_goal)
     draw_goal(screen, goal)
 
 
