@@ -3,7 +3,7 @@ import math
 import numpy as np
 
 class Robot:
-    def __init__(self, x, y, radius, color=(0, 0, 0), screen_width=800, screen_height=600):
+    def __init__(self, x, y, radius, color=(255,255,255), screen_width=800, screen_height=600, BUFFER_SIZE=0):
         self.trail = []
         self.pos = [x, y]
         self.radius = radius
@@ -14,12 +14,13 @@ class Robot:
         self.screen_width = screen_width
         self.screen_height = screen_height
         self.color = color
+        self.BUFFER_SIZE = BUFFER_SIZE
 
-    def update(self, keys, projected_goal):
+    def update(self, keys, robot_pos_transformed,projected_goal):
         # Add current position to trail
         self.trail.append(self.pos.copy())
         # Calculate direction vector to the projected goal
-        direction = projected_goal - self.pos
+        direction = projected_goal - robot_pos_transformed
         distance_to_goal = np.linalg.norm(direction)
         if distance_to_goal > 1:  # Only move if the goal is not already reached
             direction = direction / distance_to_goal
@@ -33,11 +34,11 @@ class Robot:
     def draw(self, screen):
         # Draw the trail
         if len(self.trail) > 1:
-            pygame.draw.lines(screen, (0,0,255), False, [(int(pos[0]), int(pos[1])) for pos in self.trail], 2)
+            pygame.draw.lines(screen, (0,0,255), False, [(int(pos[0])*self.BUFFER_SIZE, int(pos[1])*self.BUFFER_SIZE) for pos in self.trail], 2)
         # Draw the robot
-        pygame.draw.circle(screen, self.color, (int(self.pos[0]), int(self.pos[1])), self.radius)
+        pygame.draw.circle(screen, self.color, (int(self.pos[0])*self.BUFFER_SIZE, int(self.pos[1])*self.BUFFER_SIZE), self.radius*self.BUFFER_SIZE)
         # Draw the direction line
-        pygame.draw.line(screen, self.color, (int(self.pos[0]), int(self.pos[1])), (
-            int(self.pos[0] + self.angle_line_length * math.cos(self.angle)),
-            int(self.pos[1] + self.angle_line_length * math.sin(self.angle))
+        pygame.draw.line(screen, self.color, (int(self.pos[0])*self.BUFFER_SIZE, int(self.pos[1])*self.BUFFER_SIZE), (
+            int(self.pos[0]*self.BUFFER_SIZE + self.angle_line_length * math.cos(self.angle)),
+            int(self.pos[1]*self.BUFFER_SIZE + self.angle_line_length * math.sin(self.angle))
         ))

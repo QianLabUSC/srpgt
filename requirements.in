@@ -1,0 +1,8 @@
+pygame
+scipy
+shapely==1.7.1
+matplotlib
+numpy==1.19.3
+pyproj
+tripy
+concave_hull
