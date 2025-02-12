@@ -6,3 +6,4 @@ numpy==1.19.3
 pyproj
 tripy
 concave_hull
+tqdm

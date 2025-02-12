@@ -9,24 +9,28 @@ class Robot:
         self.radius = radius
         self.angle_line_length = 40
         self.angle = 0
-        self.move_speed = 0.02
+        self.move_speed = 0.01
+        self.max_move_speed = 2
         self.rotation_speed = 0.04
         self.screen_width = screen_width
         self.screen_height = screen_height
         self.color = color
         self.BUFFER_SIZE = BUFFER_SIZE
 
-    def update(self, keys, robot_pos_transformed,projected_goal):
+    def update(self, velocity):
         # Add current position to trail
         self.trail.append(self.pos.copy())
         # Calculate direction vector to the projected goal
-        direction = projected_goal - robot_pos_transformed
-        distance_to_goal = np.linalg.norm(direction)
-        if distance_to_goal > 1:  # Only move if the goal is not already reached
-            direction = direction / distance_to_goal
-            self.pos += self.move_speed*distance_to_goal * direction
             
-        self.angle = math.atan2(direction[1], direction[0])
+        self.angle = math.atan2(velocity[1], velocity[0])
+        
+        # Update position
+        
+        term = self.move_speed * velocity
+        if np.linalg.norm(term) > self.max_move_speed:
+            term = self.max_move_speed * term / np.linalg.norm(term)
+        
+        self.pos += term
 
         # Ensure the robot stays within screen boundaries
         self.pos[0] = max(self.radius, min(self.screen_width - self.radius, self.pos[0]))

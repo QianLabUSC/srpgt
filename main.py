@@ -26,7 +26,7 @@ Y_shape = Y.shape
 # Initialize Pygame
 pygame.init()
 
-BUFFER_SIZE = 1
+BUFFER_SIZE = 2
 
 # Set up the display
 screen_width = Y_shape[1] * BUFFER_SIZE
@@ -46,7 +46,7 @@ PINK = (255, 105, 180)
 ROBOT_RADIUS = 10
 
 # Instantiate the robot
-robot = Robot(10, 200, ROBOT_RADIUS, BLACK, screen_width, screen_height, BUFFER_SIZE=BUFFER_SIZE)
+robot = Robot(200, 400, ROBOT_RADIUS, BLACK, screen_width, screen_height, BUFFER_SIZE=BUFFER_SIZE)
 
 # Instantiate the goal point
 goal = np.array([700, 100])
@@ -55,18 +55,18 @@ parameter_set = []
 
 for i in range(Y_shape[0]):
     for j in range(Y_shape[1]):
-        parameter_set.append((i, j))
+        parameter_set.append((j, i))
 
 THRESHOLD = 0
 
 parameter_set_filtered = []
 
 for i, j in parameter_set:
-    if Y[i, j] < THRESHOLD:
+    if Y[j, i] < THRESHOLD:
         parameter_set_filtered.append((i, j))
         
         
-# disjoint_sets = build_disjoint_sets(parameter_set_filtered, 1)
+disjoint_sets = build_disjoint_sets(parameter_set_filtered, 1)
 
 
 # create concave hulls from disjoint sets
@@ -79,7 +79,7 @@ concave_obstacles = [
     np.array([[350, 100], [450, 100], [450, 150], [400, 150], [400, 300], [350, 300], [350, 100]]),
 
     # Concave "U" shape
-    np.array([[250, 400], [350, 400], [350, 450], [300, 450], [300, 500], [250, 500], [250, 400]]),
+    # np.array([[250, 400], [350, 400], [350, 450], [300, 450], [300, 500], [250, 500], [250, 400]]),
 
     # # Concave "Arrow" shape
     # np.array([[500, 300], [550, 350], [520, 350], [520, 400], [480, 400], [480, 350], [450, 350], [500, 300]])
@@ -88,32 +88,40 @@ concave_obstacles = [
 obstacles = []
 
 polygon_list = []
+polygon_list_original = []
 
-# for i, group in enumerate(disjoint_sets):
-#     if len(group) > 2:
-#         points = [parameter_set_filtered[i] for i in group]
-#         points = np.array(points)
-#         if len(group) > 3:
-#             hull = concave_hull(points, concavity=2, length_threshold=0)
-#             poly = Polygon(hull)
-#         else:
-#             poly = Polygon(points) 
-#         polygon_list.append(poly.buffer(ROBOT_RADIUS, join_style=2))
+SIMPLIFICATION_CONSTANT = 20
+
+for i, group in enumerate(disjoint_sets):
+    if len(group) > 2:
+        points = [parameter_set_filtered[i] for i in group]
+        points = np.array(points)
+        if len(group) > 3:
+            hull = concave_hull(points, concavity=2, length_threshold=0)
+            poly = Polygon(hull)
+        else:
+            poly = Polygon(points) 
+        polygon_list.append(poly.buffer(ROBOT_RADIUS, join_style=2))
+        polygon_list_original.append(poly)
 #         # print new poly vertices count
 #         # print (len(poly.exterior.coords))
 
 for concave_obstacle in concave_obstacles:
     poly = Polygon(concave_obstacle)
     polygon_list.append(poly.buffer(ROBOT_RADIUS, join_style=2))
+    polygon_list_original.append(poly)
         
+        
+WORKSPACE_BUFFER = 100
 
 diffeo_params = dict()
-diffeo_params['p'] = 50
-diffeo_params['epsilon'] = 50
-diffeo_params['varepsilon'] = 50
-diffeo_params['mu_1'] = 50
-diffeo_params['mu_2'] = 0.1
-diffeo_params['workspace'] = np.array([[0,0],[Y_shape[0],0],[Y_shape[0],Y_shape[1]],[0,Y_shape[1]],[0,0]])
+diffeo_params['p'] = 20
+diffeo_params['epsilon'] = 60
+diffeo_params['varepsilon'] = 80
+diffeo_params['mu_1'] = 30 # beta switch parameter
+diffeo_params['mu_2'] = 0.001 # gamma switch parameter
+diffeo_params['workspace'] = np.array([[-WORKSPACE_BUFFER,-WORKSPACE_BUFFER],[Y_shape[1]+WORKSPACE_BUFFER,-WORKSPACE_BUFFER],
+                                       [Y_shape[1]+WORKSPACE_BUFFER,Y_shape[0]+WORKSPACE_BUFFER],[-WORKSPACE_BUFFER,Y_shape[0]+WORKSPACE_BUFFER],[-WORKSPACE_BUFFER,-WORKSPACE_BUFFER]])
 
 # visualization.visualize_diffeoDeterminant_triangulation(polygon_list, 10, np.array([0, Y_shape[0], 0, Y_shape[1]]), np.array([101,101]), diffeo_params)
 
@@ -128,7 +136,8 @@ while (i<len(polygon_list)):
     while (j<len(polygon_list)):
         if polygon_list_merged[i].intersects(polygon_list[j]):
             polygon_list_merged[i] = polygon_list_merged[i].union(polygon_list[j])
-            polygon_list_merged[i] = polygon_list_merged[i].simplify(0.08, preserve_topology=True) # simplify polygon to eliminate strange small corners
+            print(polygon_list_merged[i])
+            polygon_list_merged[i] = polygon_list_merged[i].simplify(10, preserve_topology=True) # simplify polygon to eliminate strange small corners
             del(polygon_list[j])
         else:
             j = j+1
@@ -143,6 +152,7 @@ for i in range(len(polygon_list_merged)):
     print("i: ", i)
     if i == -1:
         continue
+    print("coords: ", coords)
     diffeo_tree_array.append(diffeoTreeTriangulation(coords, diffeo_params))
 
 
@@ -183,10 +193,10 @@ def transform_point(point, diffeo_tree_array, diffeo_params):
     
     return PositionTransformed, PositionTransformedD, PositionTransformedDD
 
-def draw_power_diagram(screen, points, radii):
+def draw_power_diagram(screen, robot_pos_transformed, points, radii):
 
     # Gather the positions of the robot and obstacles
-    points = [robot.pos] + [obstacle.pos for obstacle in obstacles]
+    points = [robot_pos_transformed] + [obstacle.pos for obstacle in obstacles]
     radii = [robot.radius] + [obstacle.radius for obstacle in obstacles]
     
     
@@ -208,12 +218,9 @@ def draw_power_diagram(screen, points, radii):
                 end_point = A + tmax * U
                 pygame.draw.line(screen, GREEN, (int(start_point[0])*BUFFER_SIZE, int(start_point[1])*BUFFER_SIZE), (int(end_point[0])*BUFFER_SIZE, int(end_point[1])*BUFFER_SIZE), 1)
 
-def compute_local_workspace_polygon(robot, obstacles):
+def compute_local_workspace_polygon(robot, robot_pos_transformed, obstacles):
 
     # Gather the positions of the robot and obstacles
-    
-    robot_pos_transformed, _, _ = transform_point(robot.pos, diffeo_tree_array, diffeo_params)
-    robot_pos_transformed = robot_pos_transformed.squeeze()
     
     points = [robot_pos_transformed] + [obstacle.pos for obstacle in obstacles]
     radii = [robot.radius] + [obstacle.radius for obstacle in obstacles]
@@ -324,11 +331,14 @@ while running:
     # for i, j in parameter_set_filtered:
     #     pygame.draw.rect(screen, (0, 0, 0), (j * BUFFER_SIZE, i * BUFFER_SIZE, BUFFER_SIZE, BUFFER_SIZE))
 
-    robot_pos_transformed, _, _ = transform_point(robot.pos, diffeo_tree_array, diffeo_params)
-    robot_pos_transformed = robot_pos_transformed.squeeze()
+    
+    mapped_pos, mapped_pos_d, _ = transform_point(robot.pos, diffeo_tree_array, diffeo_params)
+    mapped_pos = mapped_pos.squeeze()
+    mapped_pos_d = mapped_pos_d.squeeze()
+    
 
     
-    local_workspace_polygon = compute_local_workspace_polygon(robot, obstacles)
+    local_workspace_polygon = compute_local_workspace_polygon(robot, mapped_pos, obstacles)
 
     # # Fill the local workspace
     draw_local_workspace_polygon(screen, local_workspace_polygon)
@@ -341,6 +351,10 @@ while running:
         if concave_hull is not None:
             pygame_points = [(int(x)*BUFFER_SIZE, int(y)*BUFFER_SIZE) for x, y in concave_hull.exterior.coords]
             pygame.draw.polygon(screen, GREEN, pygame_points)
+    for concave_hull in polygon_list_original:
+        if concave_hull is not None:
+            pygame_points = [(int(x)*BUFFER_SIZE, int(y)*BUFFER_SIZE) for x, y in concave_hull.exterior.coords]
+            pygame.draw.polygon(screen, LIGHT_BLUE, pygame_points)
     # for polygon in transformed_polygons:
     #     if polygon is not None:
     #         pygame_points = [(int(x)*BUFFER_SIZE, int(y)*BUFFER_SIZE) for y, x in polygon]
@@ -354,26 +368,27 @@ while running:
         obstacle.draw(screen)
         
     # Draw the Voronoi diagram
-    draw_power_diagram(screen, obstacles, robot)
+    draw_power_diagram(screen, mapped_pos ,obstacles, robot)
     
     # Draw the robot
     robot.draw(screen)
-
-    # draw robot transformed
-    
-    pygame.draw.circle(screen, BLACK, (int(robot_pos_transformed[0])*BUFFER_SIZE, int(robot_pos_transformed[1])*BUFFER_SIZE), ROBOT_RADIUS*BUFFER_SIZE)
 
     transformed_mouse_pos, _, _ = transform_point(pygame.mouse.get_pos(), diffeo_tree_array, diffeo_params)
     transformed_mouse_pos = transformed_mouse_pos.squeeze()
 
     pygame.draw.circle(screen, BLACK, (int(transformed_mouse_pos[0])*BUFFER_SIZE, int(transformed_mouse_pos[1])*BUFFER_SIZE), 5*BUFFER_SIZE)
 
+    
     # Project the goal to the edge of the polygon
-    projected_goal = project_goal_to_polygon(goal, local_free_space_polygon)
+    mapped_goal, _, _ = transform_point(goal, diffeo_tree_array, diffeo_params)
+    projected_goal = project_goal_to_polygon(mapped_goal.squeeze(), local_free_space_polygon)
     
     if update_robot:
-        robot.update(keys, robot_pos_transformed.squeeze(), projected_goal)
-        pass
+        robot_vel_model = projected_goal - mapped_pos
+        inverse_jacobian = np.linalg.pinv(mapped_pos_d)
+        u = np.dot(inverse_jacobian, robot_vel_model)
+        robot.update(u)
+        
         
     if keys[pygame.K_SPACE] and not last_keys[pygame.K_SPACE]: # get only rising edge
         update_robot = not update_robot
@@ -384,6 +399,7 @@ while running:
     # Draw the goal
     draw_goal(screen, projected_goal)
     draw_goal(screen, goal)
+    draw_goal(screen, mapped_pos)
 
 
     # Update the display
