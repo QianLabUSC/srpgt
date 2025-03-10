@@ -9,7 +9,7 @@ class Robot:
         self.radius = radius
         self.angle_line_length = 40
         self.angle = 0
-        self.move_speed = 0.1
+        self.move_speed = 0.5
         self.max_move_speed = 30
         self.rotation_speed = 0.04
         self.screen_width = screen_width
@@ -41,8 +41,8 @@ class Robot:
             pygame.draw.lines(screen, (0,0,255), False, [(int(pos[0])*self.BUFFER_SIZE, int(pos[1])*self.BUFFER_SIZE) for pos in self.trail], 2)
         # Draw the robot
         pygame.draw.circle(screen, self.color, (int(self.pos[0])*self.BUFFER_SIZE, int(self.pos[1])*self.BUFFER_SIZE), self.radius*self.BUFFER_SIZE)
-        # Draw the direction line
-        pygame.draw.line(screen, self.color, (int(self.pos[0])*self.BUFFER_SIZE, int(self.pos[1])*self.BUFFER_SIZE), (
-            int(self.pos[0]*self.BUFFER_SIZE + self.angle_line_length * math.cos(self.angle)),
-            int(self.pos[1]*self.BUFFER_SIZE + self.angle_line_length * math.sin(self.angle))
-        ))
+        # # Draw the direction line
+        # pygame.draw.line(screen, self.color, (int(self.pos[0])*self.BUFFER_SIZE, int(self.pos[1])*self.BUFFER_SIZE), (
+        #     int(self.pos[0]*self.BUFFER_SIZE + self.angle_line_length * math.cos(self.angle)),
+        #     int(self.pos[1]*self.BUFFER_SIZE + self.angle_line_length * math.sin(self.angle))
+        # ))

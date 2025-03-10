@@ -13,6 +13,7 @@ from concave_hull import concave_hull, concave_hull_indexes
 from disjoint import build_disjoint_sets
 import GPy
 from safeopt import SafeOpt, linearly_spaced_combinations
+from queue import PriorityQueue
 
 FILENAME = 'testvalues.csv'
 Y = np.loadtxt(FILENAME, delimiter=',', skiprows=1)
@@ -179,10 +180,75 @@ for i, j in parameter_set_filtered:
 
 surf_safe_surface = pygame.surfarray.make_surface(surf_safe)
 
+import numpy as np
+from queue import PriorityQueue
+
+def a_star(start, goal, safe_set, parameter_set):
+    # Convert inputs to numpy arrays if they aren't already
+    start = np.array(start)
+    goal = np.array(goal)
+    
+    # Heuristic function using numpy arrays
+    def heuristic(a, b):
+        return np.linalg.norm(a - b)
+    
+    # Get neighbors function using numpy arrays
+    def get_neighbors(node, safe_set, parameter_set):
+        neighbors = []
+        # Define possible moves (left, right, up, down)
+        directions = np.array([[-1, 0], [1, 0], [0, -1], [0, 1]])
+        
+        for direction in directions:
+            neighbor = node + direction
+            # get parameter set index
+            index = neighbor[0] * Y_shape[1] + neighbor[1]
+            if safe_set[int(index)]:
+                neighbors.append(neighbor)
+        return neighbors
+    
+    open_set = PriorityQueue()
+    open_set.put((0, tuple(start)))  # Tuple needed for PriorityQueue
+    
+    # We need to use tuples as dict keys since numpy arrays aren't hashable
+    came_from = {}
+    g_score = {tuple(start): 0}
+    f_score = {tuple(start): heuristic(start, goal)}
+    
+    while not open_set.empty():
+        _, current_tuple = open_set.get()
+        current = np.array(current_tuple)
+        
+        if np.array_equal(current, goal):
+            path = []
+            current_key = tuple(current)
+            while current_key in came_from:
+                path.append(np.array(current_key))
+                current_key = came_from[current_key]
+            path.append(start)
+            path.reverse()
+            return path
+        
+        for neighbor in get_neighbors(current, safe_set, parameter_set):
+
+            neighbor_tuple = tuple(neighbor)
+            tentative_g_score = g_score[tuple(current)] + heuristic(current, neighbor)
+            
+            if neighbor_tuple not in g_score or tentative_g_score < g_score[neighbor_tuple]:
+                came_from[neighbor_tuple] = tuple(current)
+                g_score[neighbor_tuple] = tentative_g_score
+                f_score[neighbor_tuple] = tentative_g_score + heuristic(neighbor, goal)
+                open_set.put((f_score[neighbor_tuple], neighbor_tuple))
+    
+    return None
+    
+
 
 # Draw the goal point
 def draw_goal(screen, goal):
     pygame.draw.circle(screen, BLUE, (int(goal[0])*BUFFER_SIZE, int(goal[1])*BUFFER_SIZE), 10*BUFFER_SIZE)
+
+path_index = 0
+path = a_star((robot.pos[0], robot.pos[1]), (next_parameters[0], next_parameters[1]), opt.S, parameter_set)
 
 while running:
     # Handle events
@@ -211,19 +277,20 @@ while running:
     #     pygame.draw.polygon(screen, LIGHT_BLUE, np.array([x, y]).T * BUFFER_SIZE)
     
     # draw next parameters
+    
     pygame.draw.circle(screen, PINK, (int(next_parameters[0])*BUFFER_SIZE, int(next_parameters[1])*BUFFER_SIZE), 10*BUFFER_SIZE)
     
     if update_robot:
-        u = next_parameters - robot.pos
         
-        # implement A*
-        
-        
-        robot.update(u)
-        if np.linalg.norm(u) < 1:
+    
+        if path_index >= len(path):
             opt.add_new_data_point(robot.pos, Y[round(robot.pos[0]), round(robot.pos[1])])
             opt.optimize()
             next_parameters = opt.optimize()
+            pygame.draw.circle(screen, PINK, (int(next_parameters[0])*BUFFER_SIZE, int(next_parameters[1])*BUFFER_SIZE), 10*BUFFER_SIZE)
+            
+            path = a_star((round(robot.pos[0]), round(robot.pos[1])), (next_parameters[0], next_parameters[1]), opt.S, parameter_set)
+            path_index = 0
             #update safe set
             parameter_set_filtered = []
 
@@ -235,6 +302,14 @@ while running:
                 surf_safe[int(i*BUFFER_SIZE):int((i+1)*BUFFER_SIZE), int(j*BUFFER_SIZE):int((j+1)*BUFFER_SIZE), :] = LIGHT_BLUE
             surf_safe_surface = pygame.surfarray.make_surface(surf_safe)
             
+                
+        
+        u = path[path_index] - robot.pos
+        
+        if np.linalg.norm(u) < 1:
+            path_index += 1
+
+        robot.update(u)
     
         
         
