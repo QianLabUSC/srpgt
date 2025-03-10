@@ -9,8 +9,8 @@ class Robot:
         self.radius = radius
         self.angle_line_length = 40
         self.angle = 0
-        self.move_speed = 0.01
-        self.max_move_speed = 2
+        self.move_speed = 0.1
+        self.max_move_speed = 30
         self.rotation_speed = 0.04
         self.screen_width = screen_width
         self.screen_height = screen_height
@@ -32,9 +32,9 @@ class Robot:
         
         self.pos += term
 
-        # Ensure the robot stays within screen boundaries
-        self.pos[0] = max(self.radius, min(self.screen_width - self.radius, self.pos[0]))
-        self.pos[1] = max(self.radius, min(self.screen_height - self.radius, self.pos[1]))
+        # # Ensure the robot stays within screen boundaries
+        # self.pos[0] = max(self.radius, min(self.screen_width - self.radius, self.pos[0]))
+        # self.pos[1] = max(self.radius, min(self.screen_height - self.radius, self.pos[1]))
     def draw(self, screen):
         # Draw the trail
         if len(self.trail) > 1:
