@@ -9,8 +9,8 @@ class Robot:
         self.radius = radius
         self.angle_line_length = 40
         self.angle = 0
-        self.move_speed = 0.5
-        self.max_move_speed = 30
+        self.move_speed = 0.2
+        self.max_move_speed = 15
         self.rotation_speed = 0.04
         self.screen_width = screen_width
         self.screen_height = screen_height
@@ -19,7 +19,7 @@ class Robot:
 
     def update(self, velocity):
         # Add current position to trail
-        self.trail.append(self.pos.copy())
+        # self.trail.append(self.pos.copy())
         # Calculate direction vector to the projected goal
             
         self.angle = math.atan2(velocity[1], velocity[0])
