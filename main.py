@@ -27,6 +27,9 @@ from purepursuit import PurePursuitController
 from reactive_planner_lib import diffeoTreeTriangulation, polygonDiffeoTriangulation
 
 
+NUM_EXPANDERS = 10
+
+
 def get_next_parameters(opt, goal, rho):
     """
     Get the next sampling point using SafeOpt optimization.
@@ -42,16 +45,20 @@ def get_next_parameters(opt, goal, rho):
     l = opt.Q[:, ::2]
     u = opt.Q[:, 1::2]
 
-    MG = np.logical_or(opt.M, opt.G)
+    # MG = np.logical_or(opt.M, opt.G)
+    MG = opt.G
     value = np.max((u[MG] - l[MG]) / opt.scaling, axis=1)
     
-    # Add distance-based score to the optimization
-    dist_scores = 1/np.linalg.norm(opt.inputs[MG, :] - goal, axis=1)
-    value += rho * dist_scores
+    # in this version of safeopt library, returned values in G are the top n closest points to the goal
+    
+    # so, pick the best uncertainty point
 
     x = opt.inputs[MG, :][np.argmax(value), :]
     return x
 
+def value_to_risk(input_value):
+    # return risk of input: for test purposes risk is equal to value measured. This should be changed for real world applications
+    return input_value
 
 def setup_environment(Y, Y_shape, robot, goal):
     """
@@ -90,15 +97,18 @@ def setup_environment(Y, Y_shape, robot, goal):
     starting_Y = np.array(start_Y).reshape(-1, 1)
     
     # Set up Gaussian Process model and SafeOpt optimizer
-    KERNEL_VARIANCE = 1
-    KERNEL_LENGTHSCALE = 6
+    KERNEL_VARIANCE = 2
+    KERNEL_LENGTHSCALE = 5
     BETA = 2
+    LIPSCHITZ = 2
     
     kernel = GPy.kern.RBF(input_dim=2, variance=KERNEL_VARIANCE, lengthscale=KERNEL_LENGTHSCALE)
     gp = GPy.models.GPRegression(starting_X, starting_Y, kernel)
-    opt = SafeOpt(gp, parameter_set, fmin=THRESHOLD, lipschitz=None, beta=BETA)
-    opt.optimize()
-    
+    opt = SafeOpt(gp, parameter_set, fmin=THRESHOLD, lipschitz=LIPSCHITZ, beta=BETA)
+    opt.update_confidence_intervals(context=None)
+    # opt.compute_sets(full_sets=False, num_expanders=NUM_EXPANDERS)
+    opt.compute_sets(goal=goal, num_expanders=NUM_EXPANDERS)
+        
     # Get filtered safe parameters
     parameter_set_filtered = []
     for index, value in enumerate(opt.S):
@@ -108,7 +118,7 @@ def setup_environment(Y, Y_shape, robot, goal):
     return opt, parameter_set, parameter_set_filtered
 
 
-def setup_obstacles(parameter_set_filtered):
+def setup_obstacles(parameter_set_filtered, robot):
     # Create obstacle polygons
     polygon_list, disjoint_sets = create_obstacle_polygons(parameter_set_filtered)
     
@@ -117,10 +127,10 @@ def setup_obstacles(parameter_set_filtered):
     enclosing_workspace_hull_polygon = Polygon(enclosing_workspace_hull.points[enclosing_workspace_hull.vertices])
 
     
-    SIMPLIFICATION_CONSTANT = 10
+    SIMPLIFICATION_CONSTANT = 3
     
     diffeo_params = dict()
-    diffeo_params['p'] = 20
+    diffeo_params['p'] = 10
     diffeo_params['epsilon'] = 3
     diffeo_params['varepsilon'] = 3
     diffeo_params['mu_1'] = 1 # beta switch parameter
@@ -134,18 +144,13 @@ def setup_obstacles(parameter_set_filtered):
     
     obstacles = list(obstacles)
     
-    for obstacle in obstacles:
-        # simplify the polygon
-        obstacle = obstacle.simplify(SIMPLIFICATION_CONSTANT, preserve_topology=True)
-        # pass
+    for i in range(len(obstacles)):
+        obstacles[i] = obstacles[i].simplify(SIMPLIFICATION_CONSTANT, preserve_topology=True)
+    
     
     diffeo_tree_array = []
     for i in range(len(obstacles)):
         coords = np.vstack((obstacles[i].exterior.coords.xy[0],obstacles[i].exterior.coords.xy[1])).transpose()
-        # print("i: ", i)
-        if i == -1:
-            continue
-        # print("coords: ", coords)
         diffeo_tree_array.append(diffeoTreeTriangulation(coords, diffeo_params))
     
     
@@ -256,16 +261,22 @@ def draw_environment(screen, surf, polygon_list, local_workspace_polygon, enclos
     # Clear the screen
     screen.fill((255, 255, 255))
     
+    screen.blit(surf, (0, 0))
+    
     # Draw obstacle polygons
     for polygon in polygon_list:
         x, y = polygon.exterior.xy
         pygame.draw.polygon(screen, (173, 216, 230), np.array([x, y]).T * BUFFER_SIZE)
         
+    pygame.draw.polygon(screen, (0, 255, 0), np.array(local_workspace_polygon.intersection(enclosing_workspace_hull_polygon).exterior.coords) * BUFFER_SIZE)
+        
     for obstacle in obstacles:
         x, y = obstacle.exterior.xy
         pygame.draw.polygon(screen, (0, 0, 0), np.array([x, y]).T * BUFFER_SIZE)
         
-    pygame.draw.polygon(screen, (0, 255, 0), np.array(local_workspace_polygon.intersection(enclosing_workspace_hull_polygon).exterior.coords) * BUFFER_SIZE)
+    
+    
+
     
     # Draw next parameters
     pygame.draw.circle(screen, (255, 105, 180), 
@@ -296,10 +307,12 @@ def draw_goal(screen, goal, BUFFER_SIZE):
     """
     pygame.draw.circle(screen, (0, 0, 255), 
                       (int(goal[0])*BUFFER_SIZE, int(goal[1])*BUFFER_SIZE), 
-                      10*BUFFER_SIZE)
+                      2*BUFFER_SIZE)
 
 
 def main():
+    
+    connected = False
     # Load data
     FILENAME = 'testvalues.csv'
     Y = np.loadtxt(FILENAME, delimiter=',', skiprows=1)
@@ -309,7 +322,7 @@ def main():
     pygame.init()
     
     # Display settings
-    BUFFER_SIZE = 2
+    BUFFER_SIZE = 1
     screen_width = Y_shape[0] * BUFFER_SIZE
     screen_height = Y_shape[1] * BUFFER_SIZE
     screen = pygame.display.set_mode((screen_width, screen_height))
@@ -329,17 +342,26 @@ def main():
     robot = Robot(100, 200, ROBOT_RADIUS, BLACK, screen_width, screen_height, BUFFER_SIZE=BUFFER_SIZE)
     
     # Goal settings
-    goal = np.array([100, 300])
+    goal = np.array([41, 201])
     
     # Setup the environment
     opt, parameter_set, parameter_set_filtered = setup_environment(Y, Y_shape, robot, goal)
+    
+    parameter_set_filtered_map = { tuple(param): i for i, param in enumerate(parameter_set_filtered) }
+    
+    
     next_parameters_orig = get_next_parameters(opt, goal, 1)
     
-    diffeo_tree_array, diffeo_params, obstacles_decomposed_centers, obstacles_decomposed_radii, obstacles, polygon_list, disjoint_sets, enclosing_workspace_hull_polygon = setup_obstacles(parameter_set_filtered)
+    diffeo_tree_array, diffeo_params, obstacles_decomposed_centers, obstacles_decomposed_radii, obstacles, polygon_list, disjoint_sets, enclosing_workspace_hull_polygon = setup_obstacles(parameter_set_filtered, robot)
     
     
-    if disjoint_sets.connected(robot.pos, goal):
+    
+    robot_pos_index = parameter_set_filtered_map.get((round(robot.pos[0]), round(robot.pos[1])))
+    goal_pos_index = parameter_set_filtered_map.get((round(goal[0]), round(goal[1])))
+
+    if goal_pos_index is not None and disjoint_sets.connected(robot_pos_index, goal_pos_index):
         next_parameters = goal
+        connected = True
     else:
         next_parameters_orig = get_next_parameters(opt, goal, 1)
         next_parameters = modify_next_parameters(next_parameters_orig, obstacles, robot)
@@ -348,10 +370,18 @@ def main():
     # Create surface for display
     max_Y = np.max(Y)
     min_Y = np.min(Y)
-    Z = 255*(Y - min_Y) / (max_Y - min_Y)
+    Z = 255 * (Y - min_Y) / (max_Y - min_Y)
     Z = np.repeat(Z, BUFFER_SIZE, axis=1)
     Z = np.repeat(Z, BUFFER_SIZE, axis=0)
-    surf = pygame.surfarray.make_surface(Z)
+    
+    # Create a surface with two colors based on the threshold
+    surf = pygame.Surface((Z.shape[0], Z.shape[1]))
+    for x in range(Z.shape[1]):
+        for y in range(Z.shape[0]):
+            if Y[y // BUFFER_SIZE, x // BUFFER_SIZE] > 0:
+                surf.set_at((y, x), (255, 255, 255))  # Green for values above zero
+            else:
+                surf.set_at((y, x), (0, 0, 0))  # Red for values below zero
     
     # Game loop variables
     clock = pygame.time.Clock()
@@ -370,6 +400,8 @@ def main():
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:
                     goal = np.array(pygame.mouse.get_pos())/BUFFER_SIZE
+                    connected = False
+                    print ("Goal set to: ", goal)
         
         # Handle key inputs
         keys = pygame.key.get_pressed()
@@ -391,6 +423,14 @@ def main():
         # Draw environment
         draw_environment(screen, surf, polygon_list, local_workspace_polygon, enclosing_workspace_hull_polygon, obstacles, next_parameters, BUFFER_SIZE)
         
+        MG = opt.G
+        
+        for i, value in enumerate(MG):
+            if value:
+                x, y = parameter_set[i]
+                pygame.draw.circle(screen, RED, (int(x)*BUFFER_SIZE, int(y)*BUFFER_SIZE), 2*BUFFER_SIZE)
+        
+        
         
         # Update robot if enabled
         if update_robot:
@@ -406,18 +446,14 @@ def main():
             robot.update(u)
             
             # If reached final waypoint, update the SafeOpt model and replan
-            if np.linalg.norm(u) < 1:
+            if np.linalg.norm(u) < 1 and not connected:
                 # Add new data point at robot's position
                 opt.add_new_data_point(robot.pos, Y[round(robot.pos[0]), round(robot.pos[1])])
                 
                 # Update optimization
-                opt.optimize()
-                
-                if disjoint_sets.connected(robot.pos, goal):
-                    next_parameters = goal
-                else:
-                    next_parameters_orig = get_next_parameters(opt, goal, 1)
-                    next_parameters = modify_next_parameters(next_parameters_orig, obstacles, robot)
+                opt.update_confidence_intervals(context=None)
+                # opt.compute_sets(full_sets=False, num_expanders=NUM_EXPANDERS)
+                opt.compute_sets(goal=goal, num_expanders=NUM_EXPANDERS)
                 
                 # Update parameter set filtered
                 parameter_set_filtered = []
@@ -425,7 +461,19 @@ def main():
                     if value:
                         parameter_set_filtered.append(parameter_set[index])
                 
-                diffeo_tree_array, diffeo_params, obstacles_decomposed_centers, obstacles_decomposed_radii, obstacles, polygon_list, enclosing_workspace_hull_polygon = setup_obstacles(parameter_set_filtered)
+                diffeo_tree_array, diffeo_params, obstacles_decomposed_centers, obstacles_decomposed_radii, obstacles, polygon_list, disjoint_sets, enclosing_workspace_hull_polygon = setup_obstacles(parameter_set_filtered, robot)
+                
+                parameter_set_filtered_map = { tuple(param): i for i, param in enumerate(parameter_set_filtered) }
+                robot_pos_index = parameter_set_filtered_map.get((round(robot.pos[0]), round(robot.pos[1])))
+                goal_pos_index = parameter_set_filtered_map.get((round(goal[0]), round(goal[1])))
+
+                
+                if goal_pos_index is not None and disjoint_sets.connected(robot_pos_index, goal_pos_index):
+                    next_parameters = goal
+                    connected = True
+                else:
+                    next_parameters_orig = get_next_parameters(opt, goal, 1)
+                    next_parameters = modify_next_parameters(next_parameters_orig, obstacles, robot)
                 
                 mapped_goal, _, _ = transform_point(next_parameters, diffeo_tree_array, diffeo_params)
                 
