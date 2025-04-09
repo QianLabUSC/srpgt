@@ -3,27 +3,20 @@ os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
 # Standard libraries
 import numpy as np
-import time
-from queue import PriorityQueue
 
 # Third-party libraries
 import pygame
 import GPy
-from scipy.spatial import Voronoi, ConvexHull
+from scipy.spatial import ConvexHull
 import shapely as sp
-from shapely.geometry import Polygon, Point, MultiPoint, LineString
-from safeopt import SafeOpt, linearly_spaced_combinations
-from tqdm import tqdm
+from shapely.geometry import Polygon, Point
+from safeopt import SafeOpt
 import pyvoro
 
 # Local modules
 from robot import Robot
-from obstacle import Obstacle
-from concave_hull import concave_hull, concave_hull_indexes
-from disjoint import build_disjoint_sets, add_to_disjoint_sets
-from pot import repulsive_potential_and_gradient, create_workspace_with_holes
-from rrt import rrt_star
-from purepursuit import PurePursuitController
+from concave_hull import concave_hull
+from disjoint import build_disjoint_sets
 from reactive_planner_lib import diffeoTreeTriangulation, polygonDiffeoTriangulation
 
 
