@@ -1,0 +1,17 @@
+[environment]
+FILENAME = "testvalues.csv"
+THRESHOLD = 0
+SIMPLIFICATION_CONSTANT = 5
+
+[robot]
+ROBOT_RADIUS = 2
+
+[optimization]
+NUM_EXPANDERS = 20
+KERNEL_VARIANCE = 2
+KERNEL_LENGTHSCALE = 8
+BETA = 2
+LIPSCHITZ = 0.05
+
+[display]
+BUFFER_SIZE = 1

@@ -819,7 +819,11 @@ def diffeoTreeTriangulation(PolygonVertices, DiffeoParams):
         tree[i]['r_tilde_t'] = (vertices_to_consider[1]-vertices_to_consider[0])/np.linalg.norm(vertices_to_consider[1]-vertices_to_consider[0])
         tree[i]['r_tilde_n'] = np.array([-tree[i]['r_tilde_t'][1],tree[i]['r_tilde_t'][0]])
         for j in range(1,vertices_to_consider.shape[0]-1):
-            tree[i]['r_tilde_t'] = np.vstack((tree[i]['r_tilde_t'],(vertices_to_consider[j+1]-vertices_to_consider[j])/np.linalg.norm(vertices_to_consider[j+1]-vertices_to_consider[j])))
+            if np.linalg.norm(vertices_to_consider[j+1]-vertices_to_consider[j]) == 0:
+                epsilon = 0.000000001
+            else :
+                epsilon = 0
+            tree[i]['r_tilde_t'] = np.vstack((tree[i]['r_tilde_t'],(vertices_to_consider[j+1]-vertices_to_consider[j])/(np.linalg.norm(vertices_to_consider[j+1]-vertices_to_consider[j])+epsilon)))
             tree[i]['r_tilde_n'] = np.vstack((tree[i]['r_tilde_n'],np.array([-tree[i]['r_tilde_t'][j][1],tree[i]['r_tilde_t'][j][0]])))
         
     return tree

@@ -8,3 +8,4 @@ tripy
 concave_hull
 tqdm
 pyvoro
+GPy

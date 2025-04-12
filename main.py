@@ -3,6 +3,7 @@ os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
 # Standard libraries
 import numpy as np
+import tomli
 
 # Third-party libraries
 import pygame
@@ -19,8 +20,54 @@ from concave_hull import concave_hull
 from disjoint import build_disjoint_sets
 from reactive_planner_lib import diffeoTreeTriangulation, polygonDiffeoTriangulation
 
+# Configuration constants - loaded from config.toml if available
+CONFIG = {
+    "environment": {
+        "FILENAME": "testvalues.csv",
+        "THRESHOLD": 0,
+        "SIMPLIFICATION_CONSTANT": 3
+    },
+    "robot": {
+        "ROBOT_RADIUS": 2
+    },
+    "optimization": {
+        "NUM_EXPANDERS": 20,
+        "KERNEL_VARIANCE": 2,
+        "KERNEL_LENGTHSCALE": 5,
+        "BETA": 2,
+        "LIPSCHITZ": 0.1
+    },
+    "display": {
+        "BUFFER_SIZE": 1
+    }
+}
 
-NUM_EXPANDERS = 10
+def load_config(config_file="config.toml"):
+    """
+    Load configuration from a TOML file.
+    
+    Args:
+        config_file: Path to the configuration file.
+        
+    Returns:
+        Dictionary containing all configuration parameters.
+    """
+    try:
+        with open(config_file, "rb") as f:
+            loaded_config = tomli.load(f)
+        
+        # Update the global CONFIG with loaded values
+        for section in loaded_config:
+            if section in CONFIG:
+                CONFIG[section].update(loaded_config[section])
+            else:
+                CONFIG[section] = loaded_config[section]
+                
+        print(f"Configuration loaded from {config_file}")
+    except FileNotFoundError:
+        print(f"Config file {config_file} not found. Using default values.")
+    except Exception as e:
+        print(f"Error loading config file: {e}. Using default values.")
 
 
 def get_next_parameters(opt, goal, rho):
@@ -68,7 +115,7 @@ def setup_environment(Y, Y_shape, robot, goal):
         parameter_set_filtered: Array of safe positions
     """
     # Set up the environment parameters
-    THRESHOLD = 0
+    THRESHOLD = CONFIG["environment"]["THRESHOLD"]
     parameter_set = np.array([[i, j] for i in range(Y_shape[0]) for j in range(Y_shape[1])])
     
     # Initialize training data for Gaussian Process
@@ -90,10 +137,11 @@ def setup_environment(Y, Y_shape, robot, goal):
     starting_Y = np.array(start_Y).reshape(-1, 1)
     
     # Set up Gaussian Process model and SafeOpt optimizer
-    KERNEL_VARIANCE = 2
-    KERNEL_LENGTHSCALE = 5
-    BETA = 2
-    LIPSCHITZ = 2
+    KERNEL_VARIANCE = CONFIG["optimization"]["KERNEL_VARIANCE"]
+    KERNEL_LENGTHSCALE = CONFIG["optimization"]["KERNEL_LENGTHSCALE"]
+    BETA = CONFIG["optimization"]["BETA"]
+    LIPSCHITZ = CONFIG["optimization"]["LIPSCHITZ"]
+    NUM_EXPANDERS = CONFIG["optimization"]["NUM_EXPANDERS"]
     
     kernel = GPy.kern.RBF(input_dim=2, variance=KERNEL_VARIANCE, lengthscale=KERNEL_LENGTHSCALE)
     gp = GPy.models.GPRegression(starting_X, starting_Y, kernel)
@@ -120,7 +168,7 @@ def setup_obstacles(parameter_set_filtered, robot):
     enclosing_workspace_hull_polygon = Polygon(enclosing_workspace_hull.points[enclosing_workspace_hull.vertices])
 
     
-    SIMPLIFICATION_CONSTANT = 3
+    SIMPLIFICATION_CONSTANT = CONFIG["environment"]["SIMPLIFICATION_CONSTANT"]
     
     diffeo_params = dict()
     diffeo_params['p'] = 10
@@ -251,40 +299,53 @@ def draw_environment(screen, surf, polygon_list, local_workspace_polygon, enclos
         path: Path for robot to follow
         BUFFER_SIZE: Scaling factor for display
     """
+    # Colors
+    BLACK = (0, 0, 0)
+    WHITE = (255, 255, 255)
+    RED = (255, 0, 0)
+    GREEN = (0, 255, 0)
+    LIGHT_BLUE = (173, 216, 230)
+    BLUE = (0, 0, 255)
+    PINK = (255, 105, 180)
+    
     # Clear the screen
-    screen.fill((255, 255, 255))
+    screen.fill(WHITE)
     
     screen.blit(surf, (0, 0))
     
     # Draw obstacle polygons
     for polygon in polygon_list:
         x, y = polygon.exterior.xy
-        pygame.draw.polygon(screen, (173, 216, 230), np.array([x, y]).T * BUFFER_SIZE)
+        pygame.draw.polygon(screen, LIGHT_BLUE, np.array([x, y]).T * BUFFER_SIZE)
         
-    pygame.draw.polygon(screen, (0, 255, 0), np.array(local_workspace_polygon.intersection(enclosing_workspace_hull_polygon).exterior.coords) * BUFFER_SIZE)
+    pygame.draw.polygon(screen, GREEN, np.array(local_workspace_polygon.intersection(enclosing_workspace_hull_polygon).exterior.coords) * BUFFER_SIZE)
         
     for obstacle in obstacles:
         x, y = obstacle.exterior.xy
-        pygame.draw.polygon(screen, (0, 0, 0), np.array([x, y]).T * BUFFER_SIZE)
+        pygame.draw.polygon(screen, BLACK, np.array([x, y]).T * BUFFER_SIZE)
         
-    
-    
-
-    
     # Draw next parameters
-    pygame.draw.circle(screen, (255, 105, 180), 
+    pygame.draw.circle(screen, PINK, 
                       (int(next_parameters[0])*BUFFER_SIZE, 
                        int(next_parameters[1])*BUFFER_SIZE), 
                       2*BUFFER_SIZE)
     
 
-def modify_next_parameters(next_parameters, obstacles, robot):
-    for obstacle in obstacles:
-        new_obstacle = obstacle.buffer(robot.radius)
-        if new_obstacle.contains(Point(next_parameters)):
-            next_parameters = new_obstacle.boundary.interpolate(new_obstacle.boundary.project(Point(robot.pos)))
-            next_parameters = np.array([next_parameters.x, next_parameters.y])
-            break
+def modify_next_parameters(next_parameters, robot, polygon_list):
+    buffered_polygon_list = []
+    
+    for polygon in polygon_list:
+        buffered_polygon = polygon.buffer(-robot.radius)
+        buffered_polygon_list.append(buffered_polygon)
+        
+    # make multipolygon
+    buffered_polygon = sp.ops.unary_union(buffered_polygon_list)
+    
+    # project next parameters to the polygon
+    
+    if not buffered_polygon.contains(Point(next_parameters)):
+        next_parameters = buffered_polygon.boundary.interpolate(buffered_polygon.boundary.project(Point(next_parameters)))
+        next_parameters = np.array([next_parameters.x, next_parameters.y])
         
     return next_parameters
 
@@ -298,16 +359,19 @@ def draw_goal(screen, goal, BUFFER_SIZE):
         goal: Goal position
         BUFFER_SIZE: Scaling factor for display
     """
-    pygame.draw.circle(screen, (0, 0, 255), 
+    BLUE = (0, 0, 255)
+    pygame.draw.circle(screen, BLUE, 
                       (int(goal[0])*BUFFER_SIZE, int(goal[1])*BUFFER_SIZE), 
                       2*BUFFER_SIZE)
 
 
 def main():
+    # Try to load configuration from file
+    load_config()
     
     connected = False
     # Load data
-    FILENAME = 'testvalues.csv'
+    FILENAME = CONFIG["environment"]["FILENAME"]
     Y = np.loadtxt(FILENAME, delimiter=',', skiprows=1)
     Y_shape = Y.shape
     
@@ -315,7 +379,7 @@ def main():
     pygame.init()
     
     # Display settings
-    BUFFER_SIZE = 1
+    BUFFER_SIZE = CONFIG["display"]["BUFFER_SIZE"]
     screen_width = Y_shape[0] * BUFFER_SIZE
     screen_height = Y_shape[1] * BUFFER_SIZE
     screen = pygame.display.set_mode((screen_width, screen_height))
@@ -331,7 +395,7 @@ def main():
     PINK = (255, 105, 180)
     
     # Robot settings
-    ROBOT_RADIUS = 2
+    ROBOT_RADIUS = CONFIG["robot"]["ROBOT_RADIUS"]
     robot = Robot(100, 200, ROBOT_RADIUS, BLACK, screen_width, screen_height, BUFFER_SIZE=BUFFER_SIZE)
     
     # Goal settings
@@ -357,7 +421,7 @@ def main():
         connected = True
     else:
         next_parameters_orig = get_next_parameters(opt, goal, 1)
-        next_parameters = modify_next_parameters(next_parameters_orig, obstacles, robot)
+        next_parameters = modify_next_parameters(next_parameters_orig, robot, polygon_list)
     
     
     # Create surface for display
@@ -374,7 +438,7 @@ def main():
             if Y[y // BUFFER_SIZE, x // BUFFER_SIZE] > 0:
                 surf.set_at((y, x), (255, 255, 255))  # Green for values above zero
             else:
-                surf.set_at((y, x), (0, 0, 0))  # Red for values below zero
+                surf.set_at((y, x), (100, 100, 100))  # Red for values below zero
     
     # Game loop variables
     clock = pygame.time.Clock()
@@ -439,13 +503,14 @@ def main():
             robot.update(u)
             
             # If reached final waypoint, update the SafeOpt model and replan
-            if np.linalg.norm(u) < 1 and not connected:
+            if np.linalg.norm(u) < 0.1 and not connected:
                 # Add new data point at robot's position
                 opt.add_new_data_point(robot.pos, Y[round(robot.pos[0]), round(robot.pos[1])])
                 
                 # Update optimization
                 opt.update_confidence_intervals(context=None)
                 # opt.compute_sets(full_sets=False, num_expanders=NUM_EXPANDERS)
+                NUM_EXPANDERS = CONFIG["optimization"]["NUM_EXPANDERS"]
                 opt.compute_sets(goal=goal, num_expanders=NUM_EXPANDERS)
                 
                 # Update parameter set filtered
@@ -466,7 +531,7 @@ def main():
                     connected = True
                 else:
                     next_parameters_orig = get_next_parameters(opt, goal, 1)
-                    next_parameters = modify_next_parameters(next_parameters_orig, obstacles, robot)
+                    next_parameters = modify_next_parameters(next_parameters_orig, robot, polygon_list)
                 
                 mapped_goal, _, _ = transform_point(next_parameters, diffeo_tree_array, diffeo_params)
                 
