@@ -5,6 +5,7 @@ import numpy as np
 class Robot:
     def __init__(self, x, y, radius, color=(255,255,255), screen_width=800, screen_height=600, BUFFER_SIZE=0):
         self.trail = []
+        self.trail_enable = True
         self.pos = [x, y]
         self.radius = radius
         self.angle_line_length = 40
@@ -16,10 +17,14 @@ class Robot:
         self.screen_height = screen_height
         self.color = color
         self.BUFFER_SIZE = BUFFER_SIZE
+        
+    def clear_trail(self):
+        self.trail = []
 
     def update(self, velocity):
         # Add current position to trail
-        # self.trail.append(self.pos.copy())
+        if self.trail_enable:
+            self.trail.append(self.pos.copy())
         # Calculate direction vector to the projected goal
             
         self.angle = math.atan2(velocity[1], velocity[0])

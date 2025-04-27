@@ -85,15 +85,13 @@ def get_next_parameters(opt, goal, rho):
     l = opt.Q[:, ::2]
     u = opt.Q[:, 1::2]
 
-    # MG = np.logical_or(opt.M, opt.G)
-    MG = opt.G
-    value = np.max((u[MG] - l[MG]) / opt.scaling, axis=1)
+    value = np.max((u[opt.G] - l[opt.G]) / opt.scaling, axis=1)
     
     # in this version of safeopt library, returned values in G are the top n closest points to the goal
     
     # so, pick the best uncertainty point
 
-    x = opt.inputs[MG, :][np.argmax(value), :]
+    x = opt.inputs[opt.G, :][np.argmax(value), :]
     return x
 
 def value_to_risk(input_value):
@@ -160,20 +158,34 @@ def setup_environment(Y, Y_shape, robot, goal):
 
 
 def setup_obstacles(parameter_set_filtered, robot):
-    # Create obstacle polygons
-    polygon_list, disjoint_sets = create_obstacle_polygons(parameter_set_filtered)
-    
-    # Create convex hull around safe sets as enclosing workspace
-    enclosing_workspace_hull = ConvexHull(parameter_set_filtered)
-    enclosing_workspace_hull_polygon = Polygon(enclosing_workspace_hull.points[enclosing_workspace_hull.vertices])
-
     
     SIMPLIFICATION_CONSTANT = CONFIG["environment"]["SIMPLIFICATION_CONSTANT"]
     
+    # Create obstacle polygons
+    polygon_list, disjoint_sets = create_obstacle_polygons(parameter_set_filtered)
+    
+    parameter_set_filtered = np.array(parameter_set_filtered)
+    
+    min_x = np.min(parameter_set_filtered[:, 0])
+    max_x = np.max(parameter_set_filtered[:, 0])
+    min_y = np.min(parameter_set_filtered[:, 1])
+    max_y = np.max(parameter_set_filtered[:, 1])
+    
+    enclosing_workspace_hull_polygon = Polygon([(min_x, min_y), (max_x, min_y), (max_x, max_y), (min_x, max_y)])
+    
+    # Create convex hull around safe sets as enclosing workspace
+    # enclosing_workspace_hull = ConvexHull(parameter_set_filtered)
+    # enclosing_workspace_hull_polygon = Polygon(enclosing_workspace_hull.points[enclosing_workspace_hull.vertices])#.simplify(SIMPLIFICATION_CONSTANT, preserve_topology=True)
+
+    # enclosing_workspace_hull_polygon = enclosing_workspace_hull_polygon.simplify(SIMPLIFICATION_CONSTANT, preserve_topology=True)
+    
+    
+    
+    
     diffeo_params = dict()
     diffeo_params['p'] = 10
-    diffeo_params['epsilon'] = 3
-    diffeo_params['varepsilon'] = 3
+    diffeo_params['epsilon'] = 4
+    diffeo_params['varepsilon'] = 4
     diffeo_params['mu_1'] = 1 # beta switch parameter
     diffeo_params['mu_2'] = 0.15 # gamma switch parameter
     diffeo_params['workspace'] = np.array([list(coord) for coord in enclosing_workspace_hull_polygon.exterior.coords])
@@ -335,7 +347,7 @@ def modify_next_parameters(next_parameters, robot, polygon_list):
     buffered_polygon_list = []
     
     for polygon in polygon_list:
-        buffered_polygon = polygon.buffer(-robot.radius)
+        buffered_polygon = polygon.buffer(-CONFIG["environment"]["SIMPLIFICATION_CONSTANT"])
         buffered_polygon_list.append(buffered_polygon)
         
     # make multipolygon
@@ -365,6 +377,8 @@ def draw_goal(screen, goal, BUFFER_SIZE):
                       2*BUFFER_SIZE)
 
 
+import time
+
 def main():
     # Try to load configuration from file
     load_config()
@@ -374,6 +388,8 @@ def main():
     FILENAME = CONFIG["environment"]["FILENAME"]
     Y = np.loadtxt(FILENAME, delimiter=',', skiprows=1)
     Y_shape = Y.shape
+    
+    print ("Y shape: ", Y_shape)
     
     # Initialize Pygame
     pygame.init()
@@ -396,10 +412,10 @@ def main():
     
     # Robot settings
     ROBOT_RADIUS = CONFIG["robot"]["ROBOT_RADIUS"]
-    robot = Robot(100, 200, ROBOT_RADIUS, BLACK, screen_width, screen_height, BUFFER_SIZE=BUFFER_SIZE)
+    robot = Robot(230, 220, ROBOT_RADIUS, BLACK, screen_width, screen_height, BUFFER_SIZE=BUFFER_SIZE)
     
     # Goal settings
-    goal = np.array([41, 201])
+    goal = np.array([104, 96])
     
     # Setup the environment
     opt, parameter_set, parameter_set_filtered = setup_environment(Y, Y_shape, robot, goal)
@@ -435,10 +451,10 @@ def main():
     surf = pygame.Surface((Z.shape[0], Z.shape[1]))
     for x in range(Z.shape[1]):
         for y in range(Z.shape[0]):
-            if Y[y // BUFFER_SIZE, x // BUFFER_SIZE] > 0:
-                surf.set_at((y, x), (255, 255, 255))  # Green for values above zero
+            if Y[y // BUFFER_SIZE, x // BUFFER_SIZE] > CONFIG["environment"]["THRESHOLD"]:
+                surf.set_at((y, x), (255, 255, 255))  
             else:
-                surf.set_at((y, x), (100, 100, 100))  # Red for values below zero
+                surf.set_at((y, x), (100, 100, 100)) 
     
     # Game loop variables
     clock = pygame.time.Clock()
@@ -446,7 +462,13 @@ def main():
     update_robot = False
     last_keys = pygame.key.get_pressed()
     
-    mapped_goal, _, _ = transform_point(next_parameters, diffeo_tree_array, diffeo_params)
+    
+    
+    if CONFIG["environment"]["MODE"] == "semnav":
+        mapped_goal, _, _ = transform_point(next_parameters, diffeo_tree_array, diffeo_params)
+        
+    
+    
     
     # Main game loop
     while running:
@@ -464,82 +486,81 @@ def main():
         keys = pygame.key.get_pressed()
         if keys[pygame.K_SPACE] and not last_keys[pygame.K_SPACE]:
             update_robot = not update_robot
+        if keys[pygame.K_TAB] and not last_keys[pygame.K_TAB]:
+            robot.clear_trail()
+            robot.trail_enable = not robot.trail_enable
         last_keys = keys
 
+        if CONFIG["environment"]["MODE"] == "semnav":
+            mapped_pos, mapped_pos_d, _ = transform_point(robot.pos, diffeo_tree_array, diffeo_params)
+            mapped_pos = mapped_pos.squeeze()
+            mapped_pos_d = mapped_pos_d.squeeze()
+            
+            local_workspace_polygon = compute_local_workspace_polygon(robot, mapped_pos, obstacles_decomposed_centers, obstacles_decomposed_radii, screen_width, screen_height)
+            
+            local_free_space_polygon = local_workspace_polygon.buffer(-robot.radius)
+            
+            projected_goal = project_goal_to_polygon(mapped_goal.squeeze(), local_free_space_polygon)
         
-        mapped_pos, mapped_pos_d, _ = transform_point(robot.pos, diffeo_tree_array, diffeo_params)
-        mapped_pos = mapped_pos.squeeze()
-        mapped_pos_d = mapped_pos_d.squeeze()
-        
-        local_workspace_polygon = compute_local_workspace_polygon(robot, mapped_pos, obstacles_decomposed_centers, obstacles_decomposed_radii, screen_width, screen_height)
-        
-        local_free_space_polygon = local_workspace_polygon.buffer(-robot.radius)
-        
-        projected_goal = project_goal_to_polygon(mapped_goal.squeeze(), local_free_space_polygon)
-        
-        # Draw environment
-        draw_environment(screen, surf, polygon_list, local_workspace_polygon, enclosing_workspace_hull_polygon, obstacles, next_parameters, BUFFER_SIZE)
-        
-        MG = opt.G
-        
-        for i, value in enumerate(MG):
-            if value:
-                x, y = parameter_set[i]
-                pygame.draw.circle(screen, RED, (int(x)*BUFFER_SIZE, int(y)*BUFFER_SIZE), 2*BUFFER_SIZE)
-        
-        
-        
-        # Update robot if enabled
-        if update_robot:
-            robot_vel_model = projected_goal - mapped_pos
-            inverse_jacobian = np.linalg.pinv(mapped_pos_d)
+            # Draw environment
+            draw_environment(screen, surf, polygon_list, local_workspace_polygon, enclosing_workspace_hull_polygon, obstacles, next_parameters, BUFFER_SIZE)
             
             
-            # claculate u
-            u = np.dot(inverse_jacobian, robot_vel_model)
+            for i, value in enumerate(opt.G):
+                if value:
+                    x, y = parameter_set[i]
+                    pygame.draw.circle(screen, RED, (int(x)*BUFFER_SIZE, int(y)*BUFFER_SIZE), 2*BUFFER_SIZE)
             
-            print("u: ", np.linalg.norm(u))
-            # Update robot position
-            robot.update(u)
             
-            # If reached final waypoint, update the SafeOpt model and replan
-            if np.linalg.norm(u) < 0.1 and not connected:
-                # Add new data point at robot's position
-                opt.add_new_data_point(robot.pos, Y[round(robot.pos[0]), round(robot.pos[1])])
+            
+            # Update robot if enabled
+            if update_robot:
+                robot_vel_model = projected_goal - mapped_pos
+                inverse_jacobian = np.linalg.pinv(mapped_pos_d)
                 
-                # Update optimization
-                opt.update_confidence_intervals(context=None)
-                # opt.compute_sets(full_sets=False, num_expanders=NUM_EXPANDERS)
-                NUM_EXPANDERS = CONFIG["optimization"]["NUM_EXPANDERS"]
-                opt.compute_sets(goal=goal, num_expanders=NUM_EXPANDERS)
                 
-                # Update parameter set filtered
-                parameter_set_filtered = []
-                for index, value in enumerate(opt.S):
-                    if value:
-                        parameter_set_filtered.append(parameter_set[index])
+                # claculate u
+                u = np.dot(inverse_jacobian, robot_vel_model)
                 
-                diffeo_tree_array, diffeo_params, obstacles_decomposed_centers, obstacles_decomposed_radii, obstacles, polygon_list, disjoint_sets, enclosing_workspace_hull_polygon = setup_obstacles(parameter_set_filtered, robot)
+                print("u: ", np.linalg.norm(u))
+                # Update robot position
+                robot.update(u)
                 
-                parameter_set_filtered_map = { tuple(param): i for i, param in enumerate(parameter_set_filtered) }
-                robot_pos_index = parameter_set_filtered_map.get((round(robot.pos[0]), round(robot.pos[1])))
-                goal_pos_index = parameter_set_filtered_map.get((round(goal[0]), round(goal[1])))
+                # If reached final waypoint, update the model and replan
+                if np.linalg.norm(u) < 0.1 and not connected:
+                    # Add new data point at robot's position
+                    opt.add_new_data_point(robot.pos, Y[round(robot.pos[0]), round(robot.pos[1])])
+                    
+                    # Update optimization
+                    opt.update_confidence_intervals(context=None)
+                    # opt.compute_sets(full_sets=False, num_expanders=NUM_EXPANDERS)
+                    NUM_EXPANDERS = CONFIG["optimization"]["NUM_EXPANDERS"]
+                    opt.compute_sets(goal=goal, num_expanders=NUM_EXPANDERS)
+                    
+                    # Update parameter set filtered
+                    parameter_set_filtered = []
+                    for index, value in enumerate(opt.S):
+                        if value:
+                            parameter_set_filtered.append(parameter_set[index])
+                    
+                    diffeo_tree_array, diffeo_params, obstacles_decomposed_centers, obstacles_decomposed_radii, obstacles, polygon_list, disjoint_sets, enclosing_workspace_hull_polygon = setup_obstacles(parameter_set_filtered, robot)
+                    
+                    parameter_set_filtered_map = { tuple(param): i for i, param in enumerate(parameter_set_filtered) }
+                    robot_pos_index = parameter_set_filtered_map.get((round(robot.pos[0]), round(robot.pos[1])))
+                    goal_pos_index = parameter_set_filtered_map.get((round(goal[0]), round(goal[1])))
 
-                
-                if goal_pos_index is not None and disjoint_sets.connected(robot_pos_index, goal_pos_index):
-                    next_parameters = goal
-                    connected = True
-                else:
-                    next_parameters_orig = get_next_parameters(opt, goal, 1)
-                    next_parameters = modify_next_parameters(next_parameters_orig, robot, polygon_list)
-                
-                mapped_goal, _, _ = transform_point(next_parameters, diffeo_tree_array, diffeo_params)
-                
-                # Replan path
-                # path = rrt_star(robot.pos, next_parameters, parameter_set_filtered, 
-                #                polygon_list, max_iter=MAX_ITER, step_size=STEP_SIZE, 
-                #                radius=SEARCH_RADIUS, screen=screen)
-                current_waypoint_index = 0
+                    
+                    if goal_pos_index is not None and disjoint_sets.connected(robot_pos_index, goal_pos_index):
+                        next_parameters = modify_next_parameters(goal, robot, polygon_list)
+                        if np.linalg.norm(next_parameters - goal) < 0.1:
+                            connected = True
+                    else:
+                        next_parameters_orig = get_next_parameters(opt, goal, 1)
+                        next_parameters = modify_next_parameters(next_parameters_orig, robot, polygon_list)
+                    
+                    mapped_goal, _, _ = transform_point(next_parameters, diffeo_tree_array, diffeo_params)
+                    
+                    
         
         # Draw robot and goal
         robot.draw(screen)
