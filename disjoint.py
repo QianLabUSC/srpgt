@@ -25,7 +25,7 @@ def build_disjoint_sets(points, threshold):
     query_tree = KDTree(points_array)
     query_results = query_tree.query_ball_tree(data_tree, threshold)
     
-    for i, neighbors in enumerate(tqdm(query_results, desc="Building disjoint sets")):
+    for i, neighbors in enumerate(query_results):
         for j in neighbors:
             if i < j:
                 # Only merge in one direction to avoid redundant checks
