@@ -13,6 +13,7 @@ import shapely as sp
 from shapely.geometry import Polygon, Point
 from safeopt import SafeOpt
 import pyvoro
+from PIL import Image
 
 # Local modules
 from robot import Robot
@@ -41,6 +42,42 @@ CONFIG = {
         "BUFFER_SIZE": 1
     }
 }
+
+
+def capture_frame(screen, frames, frame_count):
+    """Captures the current frame and adds it to the frames list."""
+    frame = pygame.surfarray.array3d(screen)
+    frame = frame.swapaxes(0, 1)  # Convert to (width, height, color) format
+    frames.append(Image.fromarray(frame))
+
+def create_collage(frames, save_path, columns=5, num_frames=10, buffer_size=10):
+    """Creates a collage from evenly spaced frames with a white buffer around each image."""
+    if not frames:
+        print("No frames to create a collage.")
+        return
+
+    total_frames = len(frames)
+    if total_frames <= num_frames:
+        selected_frames = frames
+    else:
+        indices = [round(i * (total_frames - 1) / (num_frames - 1)) for i in range(num_frames)]
+        selected_frames = [frames[i] for i in indices]
+
+    frame_width, frame_height = selected_frames[0].size
+    rows = (len(selected_frames) + columns - 1) // columns
+
+    collage_width = columns * frame_width + (columns + 1) * buffer_size
+    collage_height = rows * frame_height + (rows + 1) * buffer_size
+
+    collage = Image.new('RGB', (collage_width, collage_height), color=(0, 0, 0))
+
+    for idx, frame in enumerate(selected_frames):
+        x = buffer_size + (idx % columns) * (frame_width + buffer_size)
+        y = buffer_size + (idx // columns) * (frame_height + buffer_size)
+        collage.paste(frame, (x, y))
+
+    collage.save(save_path)
+    print(f"Collage saved to {save_path}, total frames: {len(frames)}")
 
 def load_config(config_file="config.toml"):
     """
@@ -145,8 +182,12 @@ def setup_environment(Y, Y_shape, robot, goal):
     gp = GPy.models.GPRegression(starting_X, starting_Y, kernel)
     opt = SafeOpt(gp, parameter_set, fmin=THRESHOLD, lipschitz=LIPSCHITZ, beta=BETA)
     opt.update_confidence_intervals(context=None)
-    # opt.compute_sets(full_sets=False, num_expanders=NUM_EXPANDERS)
-    opt.compute_sets(goal=goal, num_expanders=NUM_EXPANDERS)
+    if CONFIG["robot"]["MODE"] == "navigate":
+        opt.compute_sets(goal=goal, num_expanders=NUM_EXPANDERS,)
+    elif CONFIG["robot"]["MODE"] == "explore":
+        opt.compute_sets(goal=None, num_expanders=NUM_EXPANDERS)
+    else:
+        raise ValueError("Invalid mode. Choose 'navigate' or 'explore'.")
         
     # Get filtered safe parameters
     parameter_set_filtered = []
@@ -382,8 +423,9 @@ import time
 def main():
     # Try to load configuration from file
     load_config()
-    
+    capture_flag = True
     connected = False
+    can_collage = True
     # Load data
     FILENAME = CONFIG["environment"]["FILENAME"]
     Y = np.loadtxt(FILENAME, delimiter=',', skiprows=1)
@@ -412,10 +454,16 @@ def main():
     
     # Robot settings
     ROBOT_RADIUS = CONFIG["robot"]["ROBOT_RADIUS"]
-    robot = Robot(230, 220, ROBOT_RADIUS, BLACK, screen_width, screen_height, BUFFER_SIZE=BUFFER_SIZE)
+    robot = Robot(CONFIG["robot"]["STARTING_X"], CONFIG["robot"]["STARTING_Y"], ROBOT_RADIUS, BLACK, screen_width, screen_height, BUFFER_SIZE=BUFFER_SIZE)
+    
+    frames = []
+    frame_count = 0
     
     # Goal settings
-    goal = np.array([104, 96])
+    if CONFIG["robot"]["MODE"] == "navigate":
+        goal = np.array([CONFIG["robot"]["GOAL_X"], CONFIG["robot"]["GOAL_Y"]])
+    elif CONFIG["robot"]["MODE"] == "explore":
+        goal = np.array([-110, 110])
     
     # Setup the environment
     opt, parameter_set, parameter_set_filtered = setup_environment(Y, Y_shape, robot, goal)
@@ -426,7 +474,6 @@ def main():
     next_parameters_orig = get_next_parameters(opt, goal, 1)
     
     diffeo_tree_array, diffeo_params, obstacles_decomposed_centers, obstacles_decomposed_radii, obstacles, polygon_list, disjoint_sets, enclosing_workspace_hull_polygon = setup_obstacles(parameter_set_filtered, robot)
-    
     
     
     robot_pos_index = parameter_set_filtered_map.get((round(robot.pos[0]), round(robot.pos[1])))
@@ -489,6 +536,11 @@ def main():
         if keys[pygame.K_TAB] and not last_keys[pygame.K_TAB]:
             robot.clear_trail()
             robot.trail_enable = not robot.trail_enable
+        if keys[pygame.K_f] and not last_keys[pygame.K_f]:
+            frames.clear()
+            frame_count = 0
+            can_collage = True
+            print("Frames cleared.")
         last_keys = keys
 
         if CONFIG["environment"]["MODE"] == "semnav":
@@ -522,12 +574,20 @@ def main():
                 # claculate u
                 u = np.dot(inverse_jacobian, robot_vel_model)
                 
-                print("u: ", np.linalg.norm(u))
+                # print("u: ", np.linalg.norm(u))
                 # Update robot position
                 robot.update(u)
                 
+                if np.linalg.norm(u) < 0.1 and connected:
+                    if can_collage:
+                        create_collage(frames, "collage.png", columns=3, num_frames=9)
+                        can_collage = False
+                
+                
+                
                 # If reached final waypoint, update the model and replan
                 if np.linalg.norm(u) < 0.1 and not connected:
+                    capture_flag = True
                     # Add new data point at robot's position
                     opt.add_new_data_point(robot.pos, Y[round(robot.pos[0]), round(robot.pos[1])])
                     
@@ -535,7 +595,12 @@ def main():
                     opt.update_confidence_intervals(context=None)
                     # opt.compute_sets(full_sets=False, num_expanders=NUM_EXPANDERS)
                     NUM_EXPANDERS = CONFIG["optimization"]["NUM_EXPANDERS"]
-                    opt.compute_sets(goal=goal, num_expanders=NUM_EXPANDERS)
+                    if CONFIG["robot"]["MODE"] == "navigate":
+                        opt.compute_sets(goal=goal, num_expanders=NUM_EXPANDERS,)
+                    elif CONFIG["robot"]["MODE"] == "explore":
+                        opt.compute_sets(goal=None, num_expanders=NUM_EXPANDERS)
+                    else:
+                        raise ValueError("Invalid mode. Choose 'navigate' or 'explore'.")
                     
                     # Update parameter set filtered
                     parameter_set_filtered = []
@@ -566,8 +631,26 @@ def main():
         robot.draw(screen)
         draw_goal(screen, goal, BUFFER_SIZE)
         
+        # # Draw a line from the robot to the goal
+        # pygame.draw.line(screen, BLUE, 
+        #              (int(robot.pos[0]) * BUFFER_SIZE, int(robot.pos[1]) * BUFFER_SIZE), 
+        #              (int(goal[0]) * BUFFER_SIZE, int(goal[1]) * BUFFER_SIZE), 
+        #              width=2)
+        
         # Update display
         pygame.display.flip()
+        
+        if capture_flag and frame_count < CONFIG["display"]["FRAMECOUNT"]:
+            capture_frame(screen, frames, frame_count)
+            frame_count += 1
+            capture_flag = False
+            
+        if frame_count >= CONFIG["display"]["FRAMECOUNT"] and can_collage:
+            create_collage(frames, "collage.png", columns=3, num_frames=9)
+            frame_count = 0
+
+            
+            
         clock.tick(60)
     
     # Quit pygame

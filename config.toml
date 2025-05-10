@@ -1,11 +1,16 @@
 [environment]
 FILENAME = "terrain.csv"
-THRESHOLD = 1000
+THRESHOLD = 500
 SIMPLIFICATION_CONSTANT = 4
 MODE = "semnav"
 
 [robot]
 ROBOT_RADIUS = 2
+MODE = "navigate"
+STARTING_X = 40
+STARTING_Y = 221
+GOAL_X = 185
+GOAL_Y = 360
 
 [optimization]
 NUM_EXPANDERS = 40
@@ -16,3 +21,4 @@ LIPSCHITZ = 0.003
 
 [display]
 BUFFER_SIZE = 1
+FRAMECOUNT = 9
