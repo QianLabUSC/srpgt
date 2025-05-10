@@ -1,4 +1,4 @@
-# reactive-navigation
+# Safe Reactive Navigation for Granular Terrain Exploration
 
 ## Setup Virtual Environment Using Conda
 
